@@ -5,23 +5,32 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/dhia-gharsallaoui/vpn-switcher/internal/config"
 	"github.com/dhia-gharsallaoui/vpn-switcher/internal/network"
+	"github.com/dhia-gharsallaoui/vpn-switcher/internal/system"
 	"github.com/dhia-gharsallaoui/vpn-switcher/internal/vpn"
 )
 
-func discoverVPNsCmd(mgr *vpn.Manager) tea.Cmd {
+func timeout(seconds int) time.Duration {
+	return time.Duration(seconds) * time.Second
+}
+
+func discoverVPNsCmd(mgr *vpn.Manager, profiles []vpn.VPNProfile, t config.TimeoutConfig) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), timeout(t.Discovery))
 		defer cancel()
 
 		vpns, err := mgr.StatusAll(ctx)
+		if err == nil && len(profiles) > 0 {
+			vpns = vpn.MergeProfiles(vpns, profiles)
+		}
 		return VPNListMsg{VPNs: vpns, Err: err}
 	}
 }
 
-func connectVPNCmd(mgr *vpn.Manager, target vpn.VPN) tea.Cmd {
+func connectVPNCmd(mgr *vpn.Manager, target vpn.VPN, t config.TimeoutConfig) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), timeout(t.Connect))
 		defer cancel()
 
 		err := mgr.Connect(ctx, target)
@@ -29,9 +38,9 @@ func connectVPNCmd(mgr *vpn.Manager, target vpn.VPN) tea.Cmd {
 	}
 }
 
-func switchVPNCmd(mgr *vpn.Manager, target vpn.VPN) tea.Cmd {
+func switchVPNCmd(mgr *vpn.Manager, target vpn.VPN, t config.TimeoutConfig) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), timeout(t.Switch))
 		defer cancel()
 
 		err := mgr.Switch(ctx, target)
@@ -39,9 +48,9 @@ func switchVPNCmd(mgr *vpn.Manager, target vpn.VPN) tea.Cmd {
 	}
 }
 
-func connectMultiVPNCmd(mgr *vpn.Manager, target vpn.VPN) tea.Cmd {
+func connectMultiVPNCmd(mgr *vpn.Manager, target vpn.VPN, t config.TimeoutConfig) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), timeout(t.Connect))
 		defer cancel()
 
 		err := mgr.ConnectMulti(ctx, target)
@@ -49,9 +58,9 @@ func connectMultiVPNCmd(mgr *vpn.Manager, target vpn.VPN) tea.Cmd {
 	}
 }
 
-func disconnectVPNCmd(mgr *vpn.Manager, target vpn.VPN) tea.Cmd {
+func disconnectVPNCmd(mgr *vpn.Manager, target vpn.VPN, t config.TimeoutConfig) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), timeout(t.Connect))
 		defer cancel()
 
 		err := mgr.Disconnect(ctx, target)
@@ -59,9 +68,9 @@ func disconnectVPNCmd(mgr *vpn.Manager, target vpn.VPN) tea.Cmd {
 	}
 }
 
-func fetchPublicIPCmd(fetcher *network.IPFetcher) tea.Cmd {
+func fetchPublicIPCmd(fetcher *network.IPFetcher, t config.TimeoutConfig) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), timeout(t.IPFetch))
 		defer cancel()
 
 		ip, err := fetcher.FetchPublicIP(ctx)
@@ -103,4 +112,44 @@ func tickCmd(interval time.Duration) tea.Cmd {
 	return tea.Tick(interval, func(t time.Time) tea.Msg {
 		return TickMsg{}
 	})
+}
+
+func listRoutesCmd(executor system.CommandExecutor, tableName string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		routes, err := network.ListRoutes(ctx, executor, tableName)
+		return RouteListMsg{Routes: routes, Table: tableName, Err: err}
+	}
+}
+
+func pingInterfaceCmd(executor system.CommandExecutor, ifaceName, target string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		result, err := network.PingGateway(ctx, executor, ifaceName, target)
+		return PingResultMsg{Result: result, Err: err}
+	}
+}
+
+func dnsLookupCmd(executor system.CommandExecutor, domain, recordType string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		results, err := network.Lookup(ctx, executor, domain, recordType)
+		return DNSResultMsg{Results: results, Err: err}
+	}
+}
+
+func tracerouteCmd(executor system.CommandExecutor, target, iface string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		hops, err := network.Traceroute(ctx, executor, target, iface)
+		return TracerouteResultMsg{Hops: hops, Err: err}
+	}
 }

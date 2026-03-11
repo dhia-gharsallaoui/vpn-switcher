@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"charm.land/bubbles/v2/key"
 	"charm.land/lipgloss/v2"
 )
 
@@ -28,32 +29,18 @@ var (
 			Foreground(lipgloss.Color("#9CA3AF"))
 )
 
-type helpEntry struct {
-	key  string
-	desc string
-}
-
-// HelpView renders the help overlay.
-func HelpView() string {
-	entries := []helpEntry{
-		{"j/k, ↑↓", "Navigate list"},
-		{"enter", "Connect VPN"},
-		{"d", "Disconnect VPN"},
-		{"r", "Refresh status"},
-		{"tab", "Switch tab"},
-		{"a", "Add routing rule"},
-		{"x", "Delete routing rule"},
-		{"space", "Toggle rule on/off"},
-		{"?", "Toggle help"},
-		{"q, Ctrl+C", "Quit"},
-	}
-
+// HelpView renders the help overlay from actual key bindings.
+func HelpView(bindings []key.Binding) string {
 	var b strings.Builder
 	b.WriteString(helpTitle.Render("Keyboard Shortcuts"))
 	b.WriteString("\n\n")
 
-	for _, e := range entries {
-		b.WriteString(fmt.Sprintf("%s %s\n", helpKey.Render(e.key), helpDesc.Render(e.desc)))
+	for _, kb := range bindings {
+		h := kb.Help()
+		if h.Key == "" {
+			continue
+		}
+		b.WriteString(fmt.Sprintf("%s %s\n", helpKey.Render(h.Key), helpDesc.Render(h.Desc)))
 	}
 
 	return helpBox.Render(b.String())

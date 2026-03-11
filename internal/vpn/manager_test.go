@@ -115,12 +115,17 @@ func TestManager_Switch(t *testing.T) {
 			return system.ExecResult{ExitCode: 0}, nil
 		}
 
-		// ip link show (check interface)
+		// ip link show (check interface removal)
 		if name == "ip" && len(args) >= 3 && args[0] == "link" && args[1] == "show" {
 			if interfaceExists {
 				return system.ExecResult{Stdout: fmt.Sprintf("2: %s: <POINTOPOINT>", args[2]), ExitCode: 0}, nil
 			}
 			return system.ExecResult{Stderr: "Device does not exist", ExitCode: 1}, nil
+		}
+
+		// ip addr show (check interface readiness)
+		if name == "ip" && len(args) >= 3 && args[0] == "addr" && args[1] == "show" {
+			return system.ExecResult{Stdout: fmt.Sprintf("2: %s: <POINTOPOINT>\n    inet 10.8.0.2/24 scope global %s", args[2], args[2]), ExitCode: 0}, nil
 		}
 
 		// systemctl start (OpenVPN connect)

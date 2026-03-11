@@ -19,9 +19,10 @@ const (
 
 // OpenVPNProvider manages OpenVPN connections.
 type OpenVPNProvider struct {
-	executor   system.CommandExecutor
-	configDirs []string
-	method     OpenVPNMethod
+	executor      system.CommandExecutor
+	configDirs    []string
+	method        OpenVPNMethod
+	interfaceName string
 }
 
 // NewOpenVPNProvider creates a new OpenVPN provider.
@@ -31,14 +32,22 @@ func NewOpenVPNProvider(exec system.CommandExecutor, configDirs []string, method
 		m = MethodAuto
 	}
 	return &OpenVPNProvider{
-		executor:   exec,
-		configDirs: configDirs,
-		method:     m,
+		executor:      exec,
+		configDirs:    configDirs,
+		method:        m,
+		interfaceName: "tun0",
 	}
 }
 
-func (p *OpenVPNProvider) Type() ProviderType { return ProviderOpenVPN }
-func (p *OpenVPNProvider) InterfaceName() string { return "tun0" }
+// SetInterfaceName overrides the default interface name.
+func (p *OpenVPNProvider) SetInterfaceName(name string) {
+	if name != "" {
+		p.interfaceName = name
+	}
+}
+
+func (p *OpenVPNProvider) Type() ProviderType    { return ProviderOpenVPN }
+func (p *OpenVPNProvider) InterfaceName() string { return p.interfaceName }
 
 // Discover finds OpenVPN configs and checks their status.
 func (p *OpenVPNProvider) Discover(ctx context.Context) ([]VPN, error) {
@@ -55,7 +64,7 @@ func (p *OpenVPNProvider) Discover(ctx context.Context) ([]VPN, error) {
 			Name:       name,
 			Provider:   ProviderOpenVPN,
 			ConfigPath: cfg,
-			Interface:  "tun0",
+			Interface:  p.interfaceName,
 		}
 
 		status, err := p.Status(ctx, v)

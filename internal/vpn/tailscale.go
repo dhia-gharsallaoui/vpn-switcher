@@ -31,16 +31,27 @@ type tailscalePeer struct {
 
 // TailscaleProvider manages Tailscale connections.
 type TailscaleProvider struct {
-	executor system.CommandExecutor
+	executor      system.CommandExecutor
+	interfaceName string
 }
 
 // NewTailscaleProvider creates a new Tailscale provider.
 func NewTailscaleProvider(exec system.CommandExecutor) *TailscaleProvider {
-	return &TailscaleProvider{executor: exec}
+	return &TailscaleProvider{
+		executor:      exec,
+		interfaceName: "tailscale0",
+	}
 }
 
-func (p *TailscaleProvider) Type() ProviderType  { return ProviderTailscale }
-func (p *TailscaleProvider) InterfaceName() string { return "tailscale0" }
+// SetInterfaceName overrides the default interface name.
+func (p *TailscaleProvider) SetInterfaceName(name string) {
+	if name != "" {
+		p.interfaceName = name
+	}
+}
+
+func (p *TailscaleProvider) Type() ProviderType    { return ProviderTailscale }
+func (p *TailscaleProvider) InterfaceName() string { return p.interfaceName }
 
 // Discover checks if Tailscale is installed and returns its status.
 func (p *TailscaleProvider) Discover(ctx context.Context) ([]VPN, error) {
@@ -53,7 +64,7 @@ func (p *TailscaleProvider) Discover(ctx context.Context) ([]VPN, error) {
 		ID:        "tailscale:default",
 		Name:      "Tailscale",
 		Provider:  ProviderTailscale,
-		Interface: "tailscale0",
+		Interface: p.interfaceName,
 	}
 
 	switch status.BackendState {
@@ -79,7 +90,7 @@ func (p *TailscaleProvider) Discover(ctx context.Context) ([]VPN, error) {
 				ID:        fmt.Sprintf("tailscale:exit:%s", peer.HostName),
 				Name:      fmt.Sprintf("Tailscale Exit (%s)", peer.HostName),
 				Provider:  ProviderTailscale,
-				Interface: "tailscale0",
+				Interface: p.interfaceName,
 				ExitNode:  peer.HostName,
 				Status:    StatusDisconnected,
 			}

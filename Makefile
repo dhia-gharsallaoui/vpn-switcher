@@ -6,7 +6,7 @@ LDFLAGS  := -ldflags "-s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT)"
 .PHONY: build run test test-cover lint clean install
 
 build:
-	go build $(LDFLAGS) -o bin/$(BINARY) ./cmd/vpn-switcher
+	CGO_ENABLED=0 go build $(LDFLAGS) -o bin/$(BINARY) ./cmd/vpn-switcher
 
 run: build
 	sudo ./bin/$(BINARY)

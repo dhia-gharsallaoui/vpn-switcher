@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"os"
 	"strconv"
 	"strings"
 
@@ -143,15 +142,19 @@ func (m *RoutingManager) EnsureTable(ctx context.Context, tableNum int, tableNam
 		}
 	}
 
-	// Append new table entry
+	// Append new table entry via tee (respects executor security model)
 	entry := fmt.Sprintf("%d\t%s\n", tableNum, tableName)
 	content := result.Stdout + "\n" + entry
 
-	if err := os.WriteFile(rtTablesPath, []byte(content), 0o644); err != nil {
-		if os.IsPermission(err) {
+	writeResult, err := m.executor.RunWithStdin(ctx, content, "tee", rtTablesPath)
+	if err != nil {
+		return fmt.Errorf("write rt_tables: %w", err)
+	}
+	if writeResult.ExitCode != 0 {
+		if strings.Contains(writeResult.Stderr, "Permission denied") {
 			return fmt.Errorf("write rt_tables: %w", ErrPermissionDenied)
 		}
-		return fmt.Errorf("write rt_tables: %w", err)
+		return fmt.Errorf("write rt_tables: %s", writeResult.Stderr)
 	}
 
 	return nil

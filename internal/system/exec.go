@@ -24,13 +24,18 @@ type CommandExecutor interface {
 
 // allowedCommands is the set of binaries the executor is permitted to run.
 var allowedCommands = map[string]bool{
-	"systemctl": true,
-	"tailscale": true,
-	"ip":        true,
-	"openvpn":   true,
-	"nmcli":     true,
-	"curl":      true,
-	"cat":       true,
+	"systemctl":  true,
+	"tailscale":  true,
+	"ip":         true,
+	"openvpn":    true,
+	"nmcli":      true,
+	"curl":       true,
+	"cat":        true,
+	"tee":        true,
+	"ping":       true,
+	"dig":        true,
+	"traceroute": true,
+	"resolvectl": true,
 }
 
 // RealExecutor implements CommandExecutor using os/exec.

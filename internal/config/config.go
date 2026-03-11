@@ -18,11 +18,20 @@ type Config struct {
 
 // GeneralConfig holds general application settings.
 type GeneralConfig struct {
-	IPCheckURL       string   `yaml:"ip_check_url"`
-	IPCheckInterval  int      `yaml:"ip_check_interval"`
-	OpenVPNConfigDirs []string `yaml:"openvpn_config_dirs"`
-	OpenVPNMethod    string   `yaml:"openvpn_method"`
-	AllowMultiVPN    bool     `yaml:"allow_multi_vpn"`
+	IPCheckURL        string         `yaml:"ip_check_url"`
+	IPCheckInterval   int            `yaml:"ip_check_interval"`
+	OpenVPNConfigDirs []string       `yaml:"openvpn_config_dirs"`
+	OpenVPNMethod     string         `yaml:"openvpn_method"`
+	AllowMultiVPN     bool           `yaml:"allow_multi_vpn"`
+	Timeouts          TimeoutConfig  `yaml:"timeouts"`
+}
+
+// TimeoutConfig holds timeout durations in seconds for various operations.
+type TimeoutConfig struct {
+	Discovery int `yaml:"discovery"`
+	Connect   int `yaml:"connect"`
+	Switch    int `yaml:"switch"`
+	IPFetch   int `yaml:"ip_fetch"`
 }
 
 // VPNProfile defines a VPN connection profile.
@@ -31,6 +40,7 @@ type VPNProfile struct {
 	ConfigPath string `yaml:"config_path,omitempty"`
 	Provider   string `yaml:"provider"`
 	ExitNode   string `yaml:"exit_node,omitempty"`
+	Interface  string `yaml:"interface,omitempty"`
 }
 
 // RoutingRule defines a policy routing rule.
@@ -63,6 +73,12 @@ func Default() *Config {
 			OpenVPNConfigDirs: []string{"/etc/openvpn/client", "~/.config/openvpn"},
 			OpenVPNMethod:     "auto",
 			AllowMultiVPN:     false,
+			Timeouts: TimeoutConfig{
+				Discovery: 15,
+				Connect:   30,
+				Switch:    60,
+				IPFetch:   10,
+			},
 		},
 	}
 }
@@ -85,7 +101,7 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("parse config %s: %w", path, err)
 	}
 
-	applyDefaults(cfg)
+	fillMissing(cfg)
 	return cfg, nil
 }
 
@@ -119,7 +135,8 @@ func ExpandConfigDirs(dirs []string) []string {
 	return result
 }
 
-func applyDefaults(cfg *Config) {
+// fillMissing sets default values for any config fields left empty after YAML unmarshaling.
+func fillMissing(cfg *Config) {
 	if cfg.General.IPCheckURL == "" {
 		cfg.General.IPCheckURL = "https://api.ipify.org"
 	}
@@ -131,6 +148,18 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.General.OpenVPNMethod == "" {
 		cfg.General.OpenVPNMethod = "auto"
+	}
+	if cfg.General.Timeouts.Discovery <= 0 {
+		cfg.General.Timeouts.Discovery = 15
+	}
+	if cfg.General.Timeouts.Connect <= 0 {
+		cfg.General.Timeouts.Connect = 30
+	}
+	if cfg.General.Timeouts.Switch <= 0 {
+		cfg.General.Timeouts.Switch = 60
+	}
+	if cfg.General.Timeouts.IPFetch <= 0 {
+		cfg.General.Timeouts.IPFetch = 10
 	}
 }
 

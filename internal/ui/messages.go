@@ -50,6 +50,31 @@ type RoutingRuleRemovedMsg struct {
 // TickMsg triggers periodic status refresh.
 type TickMsg struct{}
 
+// RouteListMsg carries route table listing results.
+type RouteListMsg struct {
+	Routes []network.Route
+	Table  string
+	Err    error
+}
+
+// PingResultMsg carries a single interface ping result.
+type PingResultMsg struct {
+	Result network.PingResult
+	Err    error
+}
+
+// DNSResultMsg carries DNS lookup results.
+type DNSResultMsg struct {
+	Results []network.DNSResult
+	Err     error
+}
+
+// TracerouteResultMsg carries traceroute results.
+type TracerouteResultMsg struct {
+	Hops []network.Hop
+	Err  error
+}
+
 // StatusMsg is a general status message for the status bar.
 type StatusMsg struct {
 	Text    string

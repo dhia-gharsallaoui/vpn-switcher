@@ -11,6 +11,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/dhia-gharsallaoui/vpn-switcher/internal/config"
 	"github.com/dhia-gharsallaoui/vpn-switcher/internal/network"
+	"github.com/dhia-gharsallaoui/vpn-switcher/internal/system"
 	"github.com/dhia-gharsallaoui/vpn-switcher/internal/ui/components"
 	"github.com/dhia-gharsallaoui/vpn-switcher/internal/ui/views"
 	"github.com/dhia-gharsallaoui/vpn-switcher/internal/vpn"
@@ -23,6 +24,7 @@ type App struct {
 	routingMgr *network.RoutingManager
 	ipFetcher  *network.IPFetcher
 	ifaceMon   *network.InterfaceMonitor
+	executor   system.CommandExecutor
 	cfg        *config.Config
 
 	// UI state
@@ -32,10 +34,11 @@ type App struct {
 	keys      KeyMap
 
 	// Sub-views
-	vpnList    views.VPNListModel
-	routingTab views.RoutingModel
-	confirm    views.ConfirmModel
-	helpOn     bool
+	vpnList        views.VPNListModel
+	routingTab     views.RoutingModel
+	diagnosticsTab views.DiagnosticsModel
+	confirm        views.ConfirmModel
+	helpOn         bool
 
 	// Shared state
 	spinner    spinner.Model
@@ -56,6 +59,7 @@ func NewApp(
 	rmgr *network.RoutingManager,
 	ipf *network.IPFetcher,
 	imon *network.InterfaceMonitor,
+	exec system.CommandExecutor,
 	cfg *config.Config,
 ) App {
 	s := spinner.New(
@@ -80,27 +84,55 @@ func NewApp(
 	}
 	routingModel.SetRules(routingRules)
 
-	return App{
-		vpnManager: mgr,
-		routingMgr: rmgr,
-		ipFetcher:  ipf,
-		ifaceMon:   imon,
-		cfg:        cfg,
-		activeTab:  components.TabVPNs,
-		keys:       DefaultKeyMap,
-		vpnList:    views.NewVPNListModel(),
-		routingTab: routingModel,
-		confirm:    views.NewConfirmModel(),
-		spinner:    s,
-		loading:    true,
+	// Build diagnostics model with custom tables from routing rules
+	diagModel := views.NewDiagnosticsModel()
+	for _, r := range cfg.RoutingRules {
+		if r.Table != "" {
+			diagModel.AddCustomTable(r.Table)
+		}
 	}
+
+	return App{
+		vpnManager:     mgr,
+		routingMgr:     rmgr,
+		ipFetcher:      ipf,
+		ifaceMon:       imon,
+		executor:       exec,
+		cfg:            cfg,
+		activeTab:      components.TabVPNs,
+		keys:           DefaultKeyMap,
+		vpnList:        views.NewVPNListModel(),
+		routingTab:     routingModel,
+		diagnosticsTab: diagModel,
+		confirm:        views.NewConfirmModel(),
+		spinner:        s,
+		loading:        true,
+	}
+}
+
+func (a App) timeouts() config.TimeoutConfig {
+	return a.cfg.General.Timeouts
+}
+
+func (a App) vpnProfiles() []vpn.VPNProfile {
+	profiles := make([]vpn.VPNProfile, len(a.cfg.VPNProfiles))
+	for i, p := range a.cfg.VPNProfiles {
+		profiles[i] = vpn.VPNProfile{
+			Name:       p.Name,
+			ConfigPath: p.ConfigPath,
+			Provider:   p.Provider,
+			ExitNode:   p.ExitNode,
+			Interface:  p.Interface,
+		}
+	}
+	return profiles
 }
 
 func (a App) Init() tea.Cmd {
 	interval := time.Duration(a.cfg.General.IPCheckInterval) * time.Second
 	return tea.Batch(
-		discoverVPNsCmd(a.vpnManager),
-		fetchPublicIPCmd(a.ipFetcher),
+		discoverVPNsCmd(a.vpnManager, a.vpnProfiles(), a.timeouts()),
+		fetchPublicIPCmd(a.ipFetcher, a.timeouts()),
 		listInterfacesCmd(a.ifaceMon),
 		tickCmd(interval),
 		a.spinner.Tick,
@@ -147,8 +179,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.statusMsg = fmt.Sprintf("Connected to %s", msg.VPN.Name)
 			a.statusErr = false
 			cmds = append(cmds,
-				discoverVPNsCmd(a.vpnManager),
-				fetchPublicIPCmd(a.ipFetcher),
+				discoverVPNsCmd(a.vpnManager, a.vpnProfiles(), a.timeouts()),
+				fetchPublicIPCmd(a.ipFetcher, a.timeouts()),
 				listInterfacesCmd(a.ifaceMon),
 			)
 		}
@@ -162,8 +194,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.statusMsg = fmt.Sprintf("Disconnected from %s", msg.VPN.Name)
 			a.statusErr = false
 			cmds = append(cmds,
-				discoverVPNsCmd(a.vpnManager),
-				fetchPublicIPCmd(a.ipFetcher),
+				discoverVPNsCmd(a.vpnManager, a.vpnProfiles(), a.timeouts()),
+				fetchPublicIPCmd(a.ipFetcher, a.timeouts()),
 				listInterfacesCmd(a.ifaceMon),
 			)
 		}
@@ -196,11 +228,54 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.statusErr = false
 		}
 
+	case RouteListMsg:
+		if msg.Err != nil {
+			a.statusMsg = fmt.Sprintf("Route list failed: %v", msg.Err)
+			a.statusErr = true
+		} else {
+			a.diagnosticsTab.SetRoutes(msg.Routes, msg.Table)
+		}
+
+	case PingResultMsg:
+		if msg.Err != nil {
+			a.statusMsg = fmt.Sprintf("Ping failed: %v", msg.Err)
+			a.statusErr = true
+		} else {
+			a.diagnosticsTab.AddPingResult(msg.Result)
+		}
+
+	case DNSResultMsg:
+		if msg.Err != nil {
+			a.diagnosticsTab.SetDNSError(msg.Err.Error())
+			a.statusMsg = fmt.Sprintf("DNS lookup failed: %v", msg.Err)
+			a.statusErr = true
+		} else {
+			a.diagnosticsTab.SetDNSResults(msg.Results)
+			a.statusMsg = fmt.Sprintf("DNS: %d result(s)", len(msg.Results))
+			a.statusErr = false
+		}
+
+	case TracerouteResultMsg:
+		a.loading = false
+		if msg.Err != nil {
+			a.diagnosticsTab.SetTraceError(msg.Err.Error())
+			a.statusMsg = fmt.Sprintf("Traceroute failed: %v", msg.Err)
+			a.statusErr = true
+		} else {
+			a.diagnosticsTab.SetTraceHops(msg.Hops)
+			a.statusMsg = fmt.Sprintf("Traceroute: %d hop(s)", len(msg.Hops))
+			a.statusErr = false
+		}
+
+	case StatusMsg:
+		a.statusMsg = msg.Text
+		a.statusErr = msg.IsError
+
 	case TickMsg:
 		interval := time.Duration(a.cfg.General.IPCheckInterval) * time.Second
 		cmds = append(cmds,
-			discoverVPNsCmd(a.vpnManager),
-			fetchPublicIPCmd(a.ipFetcher),
+			discoverVPNsCmd(a.vpnManager, a.vpnProfiles(), a.timeouts()),
+			fetchPublicIPCmd(a.ipFetcher, a.timeouts()),
 			listInterfacesCmd(a.ifaceMon),
 			tickCmd(interval),
 		)
@@ -228,6 +303,11 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return a.handleRoutingFormKey(msg)
 	}
 
+	// DNS input mode
+	if a.activeTab == components.TabDiagnostics && a.diagnosticsTab.DNSInput {
+		return a.handleDNSInputKey(msg)
+	}
+
 	// Global keys
 	switch {
 	case key.Matches(msg, a.keys.Quit):
@@ -236,16 +316,24 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		a.helpOn = !a.helpOn
 		return a, nil
 	case key.Matches(msg, a.keys.TabNext):
-		if a.activeTab == components.TabVPNs {
+		switch a.activeTab {
+		case components.TabVPNs:
 			a.activeTab = components.TabRouting
-		} else {
+		case components.TabRouting:
+			a.activeTab = components.TabDiagnostics
+			return a, listRoutesCmd(a.executor, a.diagnosticsTab.RouteTable)
+		default:
 			a.activeTab = components.TabVPNs
 		}
 		return a, nil
 	case key.Matches(msg, a.keys.TabPrev):
-		if a.activeTab == components.TabRouting {
+		switch a.activeTab {
+		case components.TabVPNs:
+			a.activeTab = components.TabDiagnostics
+			return a, listRoutesCmd(a.executor, a.diagnosticsTab.RouteTable)
+		case components.TabRouting:
 			a.activeTab = components.TabVPNs
-		} else {
+		default:
 			a.activeTab = components.TabRouting
 		}
 		return a, nil
@@ -254,8 +342,8 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		a.statusMsg = "Refreshing..."
 		a.statusErr = false
 		return a, tea.Batch(
-			discoverVPNsCmd(a.vpnManager),
-			fetchPublicIPCmd(a.ipFetcher),
+			discoverVPNsCmd(a.vpnManager, a.vpnProfiles(), a.timeouts()),
+			fetchPublicIPCmd(a.ipFetcher, a.timeouts()),
 			listInterfacesCmd(a.ifaceMon),
 			a.spinner.Tick,
 		)
@@ -267,6 +355,8 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return a.handleVPNKey(msg)
 	case components.TabRouting:
 		return a.handleRoutingKey(msg)
+	case components.TabDiagnostics:
+		return a.handleDiagnosticsKey(msg)
 	}
 
 	return a, nil
@@ -295,7 +385,7 @@ func (a App) handleVPNKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 			if hasActive && !a.cfg.General.AllowMultiVPN {
 				a.confirm.Show("Switch VPN?", fmt.Sprintf("Disconnect current VPN and connect to %s?", selected.Name))
-				a.pendingAction = switchVPNCmd(a.vpnManager, selected)
+				a.pendingAction = switchVPNCmd(a.vpnManager, selected, a.timeouts())
 				return a, nil
 			}
 			a.loading = true
@@ -303,9 +393,9 @@ func (a App) handleVPNKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			a.statusErr = false
 			var cmd tea.Cmd
 			if a.cfg.General.AllowMultiVPN {
-				cmd = connectMultiVPNCmd(a.vpnManager, selected)
+				cmd = connectMultiVPNCmd(a.vpnManager, selected, a.timeouts())
 			} else {
-				cmd = connectVPNCmd(a.vpnManager, selected)
+				cmd = connectVPNCmd(a.vpnManager, selected, a.timeouts())
 			}
 			return a, tea.Batch(cmd, a.spinner.Tick)
 		}
@@ -319,7 +409,7 @@ func (a App) handleVPNKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			a.loading = true
 			a.statusMsg = fmt.Sprintf("Disconnecting %s...", selected.Name)
 			a.statusErr = false
-			return a, tea.Batch(disconnectVPNCmd(a.vpnManager, selected), a.spinner.Tick)
+			return a, tea.Batch(disconnectVPNCmd(a.vpnManager, selected, a.timeouts()), a.spinner.Tick)
 		}
 	}
 	return a, nil
@@ -362,6 +452,9 @@ func (a App) handleRoutingFormKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		a.routingTab.CancelAdd()
 	case "enter":
+		if !a.routingTab.Validate() {
+			return a, nil
+		}
 		rule := a.routingTab.BuildRule()
 		a.routingTab.Rules = append(a.routingTab.Rules, rule)
 		a.routingTab.CancelAdd()
@@ -376,6 +469,71 @@ func (a App) handleRoutingFormKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// Only allow printable characters
 		if len(msg.String()) == 1 {
 			a.routingTab.TypeChar(msg.String())
+		}
+	}
+	return a, nil
+}
+
+func (a App) handleDiagnosticsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case key.Matches(msg, a.keys.Up):
+		a.diagnosticsTab.MoveUp()
+	case key.Matches(msg, a.keys.Down):
+		a.diagnosticsTab.MoveDown()
+	case key.Matches(msg, a.keys.SwitchTable):
+		table := a.diagnosticsTab.CycleTable()
+		return a, listRoutesCmd(a.executor, table)
+	case key.Matches(msg, a.keys.DNSLookup):
+		a.diagnosticsTab.StartDNSInput()
+	case key.Matches(msg, a.keys.PingAll):
+		var cmds []tea.Cmd
+		for _, iface := range a.interfaces {
+			if len(iface.Addrs) > 0 {
+				cmds = append(cmds, pingInterfaceCmd(a.executor, iface.Name, "8.8.8.8"))
+			}
+		}
+		if len(cmds) == 0 {
+			a.statusMsg = "No interfaces with addresses to ping"
+			a.statusErr = false
+			return a, nil
+		}
+		a.statusMsg = fmt.Sprintf("Pinging %d interface(s)...", len(cmds))
+		a.statusErr = false
+		return a, tea.Batch(cmds...)
+	case key.Matches(msg, a.keys.TracerouteKey):
+		// Traceroute to 8.8.8.8 via the first available interface
+		iface := ""
+		for _, i := range a.interfaces {
+			if i.Up && len(i.Addrs) > 0 {
+				iface = i.Name
+				break
+			}
+		}
+		a.loading = true
+		a.statusMsg = "Running traceroute..."
+		a.statusErr = false
+		return a, tea.Batch(tracerouteCmd(a.executor, "8.8.8.8", iface), a.spinner.Tick)
+	}
+	return a, nil
+}
+
+func (a App) handleDNSInputKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		a.diagnosticsTab.CancelDNSInput()
+	case "enter":
+		domain := a.diagnosticsTab.FinishDNSInput()
+		if domain == "" {
+			return a, nil
+		}
+		a.statusMsg = fmt.Sprintf("Looking up %s...", domain)
+		a.statusErr = false
+		return a, dnsLookupCmd(a.executor, domain, a.diagnosticsTab.DNSType)
+	case "backspace":
+		a.diagnosticsTab.BackspaceDNS()
+	default:
+		if len(msg.String()) == 1 {
+			a.diagnosticsTab.TypeDNSChar(msg.String())
 		}
 	}
 	return a, nil
@@ -424,6 +582,8 @@ func (a App) View() tea.View {
 		b.WriteString(a.vpnList.View(a.width))
 	case components.TabRouting:
 		b.WriteString(a.routingTab.View(a.width))
+	case components.TabDiagnostics:
+		b.WriteString(a.diagnosticsTab.View(a.width))
 	}
 
 	// Confirm dialog overlay
@@ -435,7 +595,7 @@ func (a App) View() tea.View {
 	// Help overlay
 	if a.helpOn {
 		b.WriteString("\n")
-		b.WriteString(views.HelpView())
+		b.WriteString(views.HelpView(a.keys.AllBindings()))
 	}
 
 	// Calculate remaining height for padding
@@ -459,6 +619,11 @@ func (a App) View() tea.View {
 		}
 	case components.TabRouting:
 		for _, kb := range a.keys.RoutingHelpBindings() {
+			h := kb.Help()
+			bindings = append(bindings, fmt.Sprintf("%s %s", helpKeyStyle.Render(h.Key), helpDescStyle.Render(h.Desc)))
+		}
+	case components.TabDiagnostics:
+		for _, kb := range a.keys.DiagnosticsHelpBindings() {
 			h := kb.Help()
 			bindings = append(bindings, fmt.Sprintf("%s %s", helpKeyStyle.Render(h.Key), helpDescStyle.Render(h.Desc)))
 		}

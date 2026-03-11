@@ -2,6 +2,7 @@ package views
 
 import (
 	"fmt"
+	"net"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -33,6 +34,7 @@ type RoutingModel struct {
 	FormInterface string
 	FormTable     string
 	FormField     int // 0=CIDR, 1=interface, 2=table
+	FormError     string
 }
 
 // NewRoutingModel creates a new routing model.
@@ -135,6 +137,28 @@ func (m *RoutingModel) Backspace() {
 	}
 }
 
+// Validate checks the form fields and returns an error message if invalid.
+func (m *RoutingModel) Validate() bool {
+	if m.FormCIDR == "" {
+		m.FormError = "CIDR is required"
+		return false
+	}
+	if _, _, err := net.ParseCIDR(m.FormCIDR); err != nil {
+		m.FormError = fmt.Sprintf("Invalid CIDR: %s", m.FormCIDR)
+		return false
+	}
+	if m.FormInterface == "" {
+		m.FormError = "Interface is required"
+		return false
+	}
+	if m.FormTable == "" {
+		m.FormError = "Table is required"
+		return false
+	}
+	m.FormError = ""
+	return true
+}
+
 // BuildRule creates a RoutingRule from the form fields.
 func (m *RoutingModel) BuildRule() network.RoutingRule {
 	return network.RoutingRule{
@@ -211,6 +235,11 @@ func (m *RoutingModel) renderForm() string {
 		if i == m.FormField {
 			b.WriteString("█") // cursor indicator
 		}
+		b.WriteString("\n")
+	}
+
+	if m.FormError != "" {
+		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#EF4444")).Render(m.FormError))
 		b.WriteString("\n")
 	}
 
