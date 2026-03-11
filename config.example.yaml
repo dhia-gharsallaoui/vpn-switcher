@@ -1,0 +1,49 @@
+# vpn-switcher configuration
+# Place this file at ~/.config/vpn-switcher/config.yaml
+
+general:
+  # URL to check public IP (must return plain text IP)
+  ip_check_url: "https://api.ipify.org"
+
+  # How often to refresh public IP and VPN status (seconds)
+  ip_check_interval: 30
+
+  # Directories to scan for OpenVPN config files
+  openvpn_config_dirs:
+    - "/etc/openvpn/client"
+    - "~/.config/openvpn"
+
+  # How to manage OpenVPN: "systemd", "nmcli", or "auto" (detect)
+  openvpn_method: "auto"
+
+  # Allow multiple VPNs to run simultaneously (requires policy routing)
+  allow_multi_vpn: false
+
+# Optional: override display names or add VPN profiles not auto-discovered
+vpn_profiles:
+  # - name: "Work VPN"
+  #   config_path: "/etc/openvpn/client/work.conf"
+  #   provider: "openvpn"
+  #
+  # - name: "Tailscale Exit (US)"
+  #   provider: "tailscale"
+  #   exit_node: "us-east-1"
+
+# Policy routing rules (advanced)
+# These are applied when the target VPN interface is up.
+routing_rules:
+  # - id: "corp-network"
+  #   description: "Route corporate network through work VPN"
+  #   enabled: true
+  #   type: "subnet"
+  #   dest_cidr: "10.0.0.0/8"
+  #   vpn_interface: "tun0"
+  #   table: "100"
+  #
+  # - id: "tailscale-mesh"
+  #   description: "Route Tailscale mesh through tailscale"
+  #   enabled: true
+  #   type: "subnet"
+  #   dest_cidr: "100.64.0.0/10"
+  #   vpn_interface: "tailscale0"
+  #   table: "101"

@@ -1,0 +1,52 @@
+version: 2
+
+project_name: vpn-switcher
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - main: ./cmd/vpn-switcher
+    binary: vpn-switcher
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.ShortCommit}}
+
+archives:
+  - format: tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+nfpms:
+  - package_name: vpn-switcher
+    vendor: ""
+    homepage: "https://github.com/dhia-gharsallaoui/vpn-switcher"
+    maintainer: "Dhia Gharsallaoui"
+    description: "TUI for managing OpenVPN + Tailscale with policy routing"
+    license: MIT
+    formats:
+      - rpm
+      - deb
+    contents:
+      - src: config.example.yaml
+        dst: /etc/vpn-switcher/config.example.yaml
+        type: config
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"

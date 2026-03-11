@@ -1,0 +1,28 @@
+linters:
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+    - gosimple
+    - ineffassign
+    - misspell
+    - gofmt
+    - goimports
+    - revive
+    - gosec
+    - prealloc
+
+linters-settings:
+  revive:
+    rules:
+      - name: exported
+        arguments:
+          - "checkPrivateReceivers"
+  gosec:
+    excludes:
+      - G204
+
+issues:
+  exclude-dirs:
+    - vendor
