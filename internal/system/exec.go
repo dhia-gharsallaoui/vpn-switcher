@@ -34,6 +34,7 @@ var allowedCommands = map[string]bool{
 	"tee":        true,
 	"ping":       true,
 	"dig":        true,
+	"nslookup":   true,
 	"traceroute": true,
 	"resolvectl": true,
 }

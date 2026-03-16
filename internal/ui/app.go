@@ -151,6 +151,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		return a.handleKey(msg)
 
+	case tea.PasteMsg:
+		return a.handlePaste(msg)
+
 	case spinner.TickMsg:
 		if a.loading {
 			var cmd tea.Cmd
@@ -238,8 +241,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case PingResultMsg:
 		if msg.Err != nil {
-			a.statusMsg = fmt.Sprintf("Ping failed: %v", msg.Err)
-			a.statusErr = true
+			// Still show the failed ping in the table
+			msg.Result.Success = false
+			a.diagnosticsTab.AddPingResult(msg.Result)
 		} else {
 			a.diagnosticsTab.AddPingResult(msg.Result)
 		}
@@ -249,6 +253,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.diagnosticsTab.SetDNSError(msg.Err.Error())
 			a.statusMsg = fmt.Sprintf("DNS lookup failed: %v", msg.Err)
 			a.statusErr = true
+		} else if len(msg.Results) == 0 {
+			a.diagnosticsTab.SetDNSError(fmt.Sprintf("No %s records found for %s", a.diagnosticsTab.DNSType, a.diagnosticsTab.DNSQuery))
+			a.statusMsg = "DNS: no records found"
+			a.statusErr = false
 		} else {
 			a.diagnosticsTab.SetDNSResults(msg.Results)
 			a.statusMsg = fmt.Sprintf("DNS: %d result(s)", len(msg.Results))
@@ -466,9 +474,9 @@ func (a App) handleRoutingFormKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "backspace":
 		a.routingTab.Backspace()
 	default:
-		// Only allow printable characters
-		if len(msg.String()) == 1 {
-			a.routingTab.TypeChar(msg.String())
+		s := msg.String()
+		if s != "" && !strings.HasPrefix(s, "ctrl+") && !strings.HasPrefix(s, "alt+") {
+			a.routingTab.TypeChar(s)
 		}
 	}
 	return a, nil
@@ -486,22 +494,48 @@ func (a App) handleDiagnosticsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, a.keys.DNSLookup):
 		a.diagnosticsTab.StartDNSInput()
 	case key.Matches(msg, a.keys.PingAll):
+		a.diagnosticsTab.PingResults = nil // clear old results
+
+		// Use resolved IP from DNS results when available
+		target := a.diagnosticsTab.ResolvedIP()
+
 		var cmds []tea.Cmd
-		for _, iface := range a.interfaces {
-			if len(iface.Addrs) > 0 {
-				cmds = append(cmds, pingInterfaceCmd(a.executor, iface.Name, "8.8.8.8"))
+		if target != "" {
+			// Ping the resolved IP from each VPN interface
+			for _, iface := range a.interfaces {
+				if iface.Up && len(iface.Addrs) > 0 {
+					cmds = append(cmds, pingInterfaceCmd(a.executor, iface.Name, target))
+				}
+			}
+			// Also ping via default route
+			cmds = append(cmds, pingTargetCmd(a.executor, target))
+		} else {
+			// No domain — ping each interface's gateway
+			for _, iface := range a.interfaces {
+				if iface.Up && len(iface.Addrs) > 0 {
+					cmds = append(cmds, pingGatewayCmd(a.executor, iface.Name))
+				}
 			}
 		}
+
 		if len(cmds) == 0 {
 			a.statusMsg = "No interfaces with addresses to ping"
 			a.statusErr = false
 			return a, nil
 		}
-		a.statusMsg = fmt.Sprintf("Pinging %d interface(s)...", len(cmds))
+		label := target
+		if label == "" {
+			label = "gateways"
+		}
+		a.statusMsg = fmt.Sprintf("Pinging %s via %d path(s)...", label, len(cmds))
 		a.statusErr = false
 		return a, tea.Batch(cmds...)
 	case key.Matches(msg, a.keys.TracerouteKey):
-		// Traceroute to 8.8.8.8 via the first available interface
+		// Use resolved IP from DNS, or fall back to 8.8.8.8
+		target := a.diagnosticsTab.ResolvedIP()
+		if target == "" {
+			target = "8.8.8.8"
+		}
 		iface := ""
 		for _, i := range a.interfaces {
 			if i.Up && len(i.Addrs) > 0 {
@@ -510,9 +544,9 @@ func (a App) handleDiagnosticsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		a.loading = true
-		a.statusMsg = "Running traceroute..."
+		a.statusMsg = fmt.Sprintf("Traceroute to %s...", target)
 		a.statusErr = false
-		return a, tea.Batch(tracerouteCmd(a.executor, "8.8.8.8", iface), a.spinner.Tick)
+		return a, tea.Batch(tracerouteCmd(a.executor, target, iface), a.spinner.Tick)
 	}
 	return a, nil
 }
@@ -532,10 +566,30 @@ func (a App) handleDNSInputKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "backspace":
 		a.diagnosticsTab.BackspaceDNS()
 	default:
-		if len(msg.String()) == 1 {
-			a.diagnosticsTab.TypeDNSChar(msg.String())
+		s := msg.String()
+		if s != "" && !strings.HasPrefix(s, "ctrl+") && !strings.HasPrefix(s, "alt+") {
+			a.diagnosticsTab.TypeDNSChar(s)
 		}
 	}
+	return a, nil
+}
+
+func (a App) handlePaste(msg tea.PasteMsg) (tea.Model, tea.Cmd) {
+	text := msg.String()
+	if text == "" {
+		return a, nil
+	}
+
+	if a.activeTab == components.TabDiagnostics && a.diagnosticsTab.DNSInput {
+		a.diagnosticsTab.TypeDNSChar(text)
+		return a, nil
+	}
+
+	if a.activeTab == components.TabRouting && a.routingTab.Adding {
+		a.routingTab.TypeChar(text)
+		return a, nil
+	}
+
 	return a, nil
 }
 

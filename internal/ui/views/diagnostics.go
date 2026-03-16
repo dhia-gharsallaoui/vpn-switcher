@@ -185,6 +185,17 @@ func (m *DiagnosticsModel) BackspaceDNS() {
 	}
 }
 
+// ResolvedIP returns the first A/AAAA record IP from the last DNS query,
+// or the raw query string if no results are available.
+func (m *DiagnosticsModel) ResolvedIP() string {
+	for _, r := range m.DNSResults {
+		if r.Type == "A" || r.Type == "AAAA" {
+			return r.Value
+		}
+	}
+	return m.DNSQuery
+}
+
 // MoveUp moves cursor up in the active panel.
 func (m *DiagnosticsModel) MoveUp() {
 	switch m.ActivePanel {
@@ -313,7 +324,11 @@ func (m *DiagnosticsModel) renderDNSPanel(width int) string {
 	}
 
 	if len(m.DNSResults) == 0 {
-		b.WriteString(diagDimStyle.Render("  Press / to perform a DNS lookup."))
+		if m.DNSQuery != "" {
+			b.WriteString(diagDimStyle.Render("  No results found. Press / to try another domain."))
+		} else {
+			b.WriteString(diagDimStyle.Render("  Press / to perform a DNS lookup."))
+		}
 		return diagPanelStyle.Width(width - 4).Render(b.String())
 	}
 

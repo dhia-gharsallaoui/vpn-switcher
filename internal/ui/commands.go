@@ -129,7 +129,39 @@ func pingInterfaceCmd(executor system.CommandExecutor, ifaceName, target string)
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		result, err := network.PingGateway(ctx, executor, ifaceName, target)
+		result, err := network.PingTarget(ctx, executor, target, ifaceName)
+		return PingResultMsg{Result: result, Err: err}
+	}
+}
+
+// pingTargetCmd pings a target without interface binding (uses default route).
+func pingTargetCmd(executor system.CommandExecutor, target string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		result, err := network.PingTarget(ctx, executor, target, "")
+		result.Interface = "default"
+		return PingResultMsg{Result: result, Err: err}
+	}
+}
+
+// pingGatewayCmd detects the gateway for an interface and pings it.
+func pingGatewayCmd(executor system.CommandExecutor, ifaceName string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		gw, err := network.DetectGateway(ctx, executor, ifaceName)
+		if err != nil {
+			return PingResultMsg{
+				Result: network.PingResult{Interface: ifaceName, Target: "no gateway"},
+				Err:    nil, // not a fatal error, just no gateway
+			}
+		}
+
+		result, err := network.PingTarget(ctx, executor, gw, "")
+		result.Interface = ifaceName
 		return PingResultMsg{Result: result, Err: err}
 	}
 }

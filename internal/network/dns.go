@@ -128,3 +128,76 @@ func parseServer(line string) string {
 	}
 	return s
 }
+
+// NSlookup runs "nslookup <domain>" and parses the output.
+// Useful as a fallback when dig is not installed.
+func NSlookup(ctx context.Context, executor system.CommandExecutor, domain string) ([]DNSResult, error) {
+	result, err := executor.Run(ctx, "nslookup", domain)
+	if err != nil {
+		return nil, fmt.Errorf("nslookup %s: %w", domain, err)
+	}
+
+	var results []DNSResult
+	var server string
+	inAnswer := false
+
+	for _, line := range strings.Split(result.Stdout, "\n") {
+		line = strings.TrimSpace(line)
+
+		// Parse the server line: "Server:  127.0.0.53"
+		if strings.HasPrefix(line, "Server:") {
+			server = strings.TrimSpace(strings.TrimPrefix(line, "Server:"))
+			continue
+		}
+
+		// The "Non-authoritative answer:" line marks start of results
+		if strings.Contains(line, "answer:") {
+			inAnswer = true
+			continue
+		}
+
+		if !inAnswer {
+			continue
+		}
+
+		// Skip "Name:" lines
+		if strings.HasPrefix(line, "Name:") {
+			continue
+		}
+
+		// Parse "Address: 93.184.216.34" lines
+		if strings.HasPrefix(line, "Address:") {
+			addr := strings.TrimSpace(strings.TrimPrefix(line, "Address:"))
+			if addr == "" {
+				continue
+			}
+			recType := "A"
+			if strings.Contains(addr, ":") {
+				recType = "AAAA"
+			}
+			results = append(results, DNSResult{
+				Domain: domain,
+				Type:   recType,
+				Value:  addr,
+				Server: server,
+			})
+		}
+	}
+
+	if len(results) == 0 && result.ExitCode != 0 {
+		return nil, fmt.Errorf("nslookup %s: %s", domain, result.Stderr)
+	}
+
+	return results, nil
+}
+
+// LookupAuto tries dig first, falls back to nslookup if dig is not available.
+func LookupAuto(ctx context.Context, executor system.CommandExecutor, domain, recordType string) ([]DNSResult, error) {
+	results, err := Lookup(ctx, executor, domain, recordType)
+	if err == nil {
+		return results, nil
+	}
+
+	// If dig failed (likely not installed), try nslookup
+	return NSlookup(ctx, executor, domain)
+}
