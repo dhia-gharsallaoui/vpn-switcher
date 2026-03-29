@@ -8,12 +8,24 @@ import (
 	"github.com/dhia-gharsallaoui/vpn-switcher/internal/network"
 )
 
+const (
+	maxRoutePanelRows = 10
+	maxDNSPanelRows   = 6
+	maxPingPanelRows  = 6
+	maxTraceRows      = 8
+	panelCount        = 4 // routes, dns, ping, traceroute
+)
+
 var (
 	diagPanelStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#06B6D4")).
-			Padding(0, 1).
-			MarginBottom(1)
+			BorderForeground(lipgloss.Color("#6B7280")).
+			Padding(0, 1)
+
+	diagActiveBorderStyle = lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(lipgloss.Color("#06B6D4")).
+				Padding(0, 1)
 
 	diagHeaderStyle = lipgloss.NewStyle().
 			Bold(true).
@@ -40,27 +52,24 @@ var (
 
 	diagInactivePanelStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#9CA3AF"))
-
-	diagInputStyle = lipgloss.NewStyle().
-			Border(lipgloss.NormalBorder()).
-			BorderForeground(lipgloss.Color("#06B6D4")).
-			Padding(0, 1)
 )
 
 // DiagnosticsModel manages the diagnostics tab state.
 type DiagnosticsModel struct {
 	// Route table
 	Routes      []network.Route
-	RouteTable  string // "main", "local", etc.
+	RouteTable  string
 	RouteTables []string
 	RouteCursor int
+	RouteScroll int
 
 	// DNS
 	DNSResults []network.DNSResult
 	DNSQuery   string
-	DNSType    string // "A", "AAAA", etc.
-	DNSInput   bool   // true when user is typing a domain
-	DNSField   string // current input text
+	DNSType    string
+	DNSInput   bool
+	DNSField   string
+	DNSCursor  int // cursor position within DNSField
 	DNSError   string
 
 	// Ping
@@ -70,8 +79,8 @@ type DiagnosticsModel struct {
 	TraceHops  []network.Hop
 	TraceError string
 
-	// Panel focus
-	ActivePanel int // 0=routes, 1=dns, 2=ping
+	// Panel focus: 0=routes, 1=dns, 2=ping, 3=traceroute
+	ActivePanel int
 }
 
 // NewDiagnosticsModel creates a new diagnostics model.
@@ -83,28 +92,27 @@ func NewDiagnosticsModel() DiagnosticsModel {
 	}
 }
 
-// SetRoutes updates the displayed routes.
+// --- Data setters ---
+
 func (m *DiagnosticsModel) SetRoutes(routes []network.Route, table string) {
 	m.Routes = routes
 	m.RouteTable = table
+	m.RouteScroll = 0
 	if m.RouteCursor >= len(routes) && len(routes) > 0 {
 		m.RouteCursor = len(routes) - 1
 	}
 }
 
-// SetDNSResults updates the DNS results.
 func (m *DiagnosticsModel) SetDNSResults(results []network.DNSResult) {
 	m.DNSResults = results
 	m.DNSError = ""
 }
 
-// SetDNSError records a DNS lookup error.
 func (m *DiagnosticsModel) SetDNSError(err string) {
 	m.DNSError = err
 	m.DNSResults = nil
 }
 
-// AddPingResult adds or updates a ping result for an interface.
 func (m *DiagnosticsModel) AddPingResult(result network.PingResult) {
 	for i, r := range m.PingResults {
 		if r.Interface == result.Interface {
@@ -115,19 +123,18 @@ func (m *DiagnosticsModel) AddPingResult(result network.PingResult) {
 	m.PingResults = append(m.PingResults, result)
 }
 
-// SetTraceHops updates the traceroute results.
 func (m *DiagnosticsModel) SetTraceHops(hops []network.Hop) {
 	m.TraceHops = hops
 	m.TraceError = ""
 }
 
-// SetTraceError records a traceroute error.
 func (m *DiagnosticsModel) SetTraceError(err string) {
 	m.TraceError = err
 	m.TraceHops = nil
 }
 
-// CycleTable advances to the next routing table name.
+// --- Table cycling ---
+
 func (m *DiagnosticsModel) CycleTable() string {
 	if len(m.RouteTables) == 0 {
 		return "main"
@@ -137,15 +144,16 @@ func (m *DiagnosticsModel) CycleTable() string {
 			next := (i + 1) % len(m.RouteTables)
 			m.RouteTable = m.RouteTables[next]
 			m.RouteCursor = 0
+			m.RouteScroll = 0
 			return m.RouteTable
 		}
 	}
 	m.RouteTable = m.RouteTables[0]
 	m.RouteCursor = 0
+	m.RouteScroll = 0
 	return m.RouteTable
 }
 
-// AddCustomTable adds a table name if not already present.
 func (m *DiagnosticsModel) AddCustomTable(name string) {
 	for _, t := range m.RouteTables {
 		if t == name {
@@ -155,38 +163,50 @@ func (m *DiagnosticsModel) AddCustomTable(name string) {
 	m.RouteTables = append(m.RouteTables, name)
 }
 
-// StartDNSInput enters DNS input mode.
+// --- DNS input ---
+
 func (m *DiagnosticsModel) StartDNSInput() {
 	m.DNSInput = true
 	m.DNSField = ""
+	m.DNSCursor = 0
 }
 
-// CancelDNSInput exits DNS input mode.
 func (m *DiagnosticsModel) CancelDNSInput() {
 	m.DNSInput = false
 }
 
-// FinishDNSInput exits DNS input mode and sets the query.
 func (m *DiagnosticsModel) FinishDNSInput() string {
 	m.DNSInput = false
 	m.DNSQuery = m.DNSField
 	return m.DNSQuery
 }
 
-// TypeDNSChar adds a character to the DNS input.
 func (m *DiagnosticsModel) TypeDNSChar(ch string) {
-	m.DNSField += ch
+	m.DNSField = m.DNSField[:m.DNSCursor] + ch + m.DNSField[m.DNSCursor:]
+	m.DNSCursor += len(ch)
 }
 
-// BackspaceDNS removes the last character from DNS input.
 func (m *DiagnosticsModel) BackspaceDNS() {
-	if len(m.DNSField) > 0 {
-		m.DNSField = m.DNSField[:len(m.DNSField)-1]
+	if m.DNSCursor > 0 {
+		m.DNSField = m.DNSField[:m.DNSCursor-1] + m.DNSField[m.DNSCursor:]
+		m.DNSCursor--
 	}
 }
 
-// ResolvedIP returns the first A/AAAA record IP from the last DNS query,
-// or the raw query string if no results are available.
+func (m *DiagnosticsModel) MoveDNSCursorLeft() {
+	if m.DNSCursor > 0 {
+		m.DNSCursor--
+	}
+}
+
+func (m *DiagnosticsModel) MoveDNSCursorRight() {
+	if m.DNSCursor < len(m.DNSField) {
+		m.DNSCursor++
+	}
+}
+
+// --- Resolved IP ---
+
 func (m *DiagnosticsModel) ResolvedIP() string {
 	for _, r := range m.DNSResults {
 		if r.Type == "A" || r.Type == "AAAA" {
@@ -196,37 +216,40 @@ func (m *DiagnosticsModel) ResolvedIP() string {
 	return m.DNSQuery
 }
 
-// MoveUp moves cursor up in the active panel.
+// --- Navigation ---
+
 func (m *DiagnosticsModel) MoveUp() {
-	switch m.ActivePanel {
-	case 0:
+	if m.ActivePanel == 0 {
 		if m.RouteCursor > 0 {
 			m.RouteCursor--
+			if m.RouteCursor < m.RouteScroll {
+				m.RouteScroll = m.RouteCursor
+			}
 		}
 	}
 }
 
-// MoveDown moves cursor down in the active panel.
 func (m *DiagnosticsModel) MoveDown() {
-	switch m.ActivePanel {
-	case 0:
+	if m.ActivePanel == 0 {
 		if m.RouteCursor < len(m.Routes)-1 {
 			m.RouteCursor++
+			if m.RouteCursor >= m.RouteScroll+maxRoutePanelRows {
+				m.RouteScroll = m.RouteCursor - maxRoutePanelRows + 1
+			}
 		}
 	}
 }
 
-// NextPanel cycles to the next sub-panel.
 func (m *DiagnosticsModel) NextPanel() {
-	m.ActivePanel = (m.ActivePanel + 1) % 3
+	m.ActivePanel = (m.ActivePanel + 1) % panelCount
 }
 
-// PrevPanel cycles to the previous sub-panel.
 func (m *DiagnosticsModel) PrevPanel() {
-	m.ActivePanel = (m.ActivePanel + 2) % 3
+	m.ActivePanel = (m.ActivePanel + panelCount - 1) % panelCount
 }
 
-// View renders the diagnostics tab with all three panels stacked vertically.
+// --- Rendering ---
+
 func (m *DiagnosticsModel) View(width int) string {
 	var b strings.Builder
 
@@ -244,11 +267,25 @@ func (m *DiagnosticsModel) View(width int) string {
 	return b.String()
 }
 
+func (m *DiagnosticsModel) panelStyle(panelIndex int) lipgloss.Style {
+	if m.ActivePanel == panelIndex {
+		return diagActiveBorderStyle
+	}
+	return diagPanelStyle
+}
+
 func (m *DiagnosticsModel) panelTitle(name string, panelIndex int) string {
 	if m.ActivePanel == panelIndex {
 		return diagActivePanelStyle.Render(fmt.Sprintf("▸ %s", name))
 	}
 	return diagInactivePanelStyle.Render(fmt.Sprintf("  %s", name))
+}
+
+func scrollIndicator(offset, total, visible int) string {
+	if total <= visible {
+		return ""
+	}
+	return diagDimStyle.Render(fmt.Sprintf("  [%d-%d of %d] ↑↓ scroll", offset+1, min(offset+visible, total), total))
 }
 
 func (m *DiagnosticsModel) renderRoutePanel(width int) string {
@@ -260,14 +297,19 @@ func (m *DiagnosticsModel) renderRoutePanel(width int) string {
 
 	if len(m.Routes) == 0 {
 		b.WriteString(diagDimStyle.Render("  No routes. Press t to switch tables."))
-		return diagPanelStyle.Width(width - 4).Render(b.String())
+		return m.panelStyle(0).Width(width - 4).Render(b.String())
 	}
 
-	// Header
 	b.WriteString(diagHeaderStyle.Render(fmt.Sprintf("  %-22s %-16s %-12s %-8s %-8s %s", "Destination", "Via", "Dev", "Scope", "Metric", "Proto")))
 	b.WriteString("\n")
 
-	for i, r := range m.Routes {
+	end := m.RouteScroll + maxRoutePanelRows
+	if end > len(m.Routes) {
+		end = len(m.Routes)
+	}
+
+	for i := m.RouteScroll; i < end; i++ {
+		r := m.Routes[i]
 		via := r.Via
 		if via == "" {
 			via = "-"
@@ -295,7 +337,12 @@ func (m *DiagnosticsModel) renderRoutePanel(width int) string {
 		b.WriteString("\n")
 	}
 
-	return diagPanelStyle.Width(width - 4).Render(b.String())
+	ind := scrollIndicator(m.RouteScroll, len(m.Routes), maxRoutePanelRows)
+	if ind != "" {
+		b.WriteString(ind)
+	}
+
+	return m.panelStyle(0).Width(width - 4).Render(b.String())
 }
 
 func (m *DiagnosticsModel) renderDNSPanel(width int) string {
@@ -310,17 +357,21 @@ func (m *DiagnosticsModel) renderDNSPanel(width int) string {
 	b.WriteString("\n")
 
 	if m.DNSInput {
+		// Render input field with cursor
+		before := m.DNSField[:m.DNSCursor]
+		after := m.DNSField[m.DNSCursor:]
 		b.WriteString(diagValueStyle.Render("  Domain: "))
-		b.WriteString(diagHighlightStyle.Render(m.DNSField))
+		b.WriteString(diagHighlightStyle.Render(before))
 		b.WriteString(diagHighlightStyle.Render("█"))
+		b.WriteString(diagHighlightStyle.Render(after))
 		b.WriteString("\n")
-		b.WriteString(diagDimStyle.Render("  [enter] lookup  [esc] cancel"))
-		return diagPanelStyle.Width(width - 4).Render(b.String())
+		b.WriteString(diagDimStyle.Render("  [enter] lookup  [esc] cancel  [←/→] move cursor"))
+		return m.panelStyle(1).Width(width - 4).Render(b.String())
 	}
 
 	if m.DNSError != "" {
 		b.WriteString(diagErrorStyle.Render(fmt.Sprintf("  Error: %s", m.DNSError)))
-		return diagPanelStyle.Width(width - 4).Render(b.String())
+		return m.panelStyle(1).Width(width - 4).Render(b.String())
 	}
 
 	if len(m.DNSResults) == 0 {
@@ -329,14 +380,18 @@ func (m *DiagnosticsModel) renderDNSPanel(width int) string {
 		} else {
 			b.WriteString(diagDimStyle.Render("  Press / to perform a DNS lookup."))
 		}
-		return diagPanelStyle.Width(width - 4).Render(b.String())
+		return m.panelStyle(1).Width(width - 4).Render(b.String())
 	}
 
-	// Header
 	b.WriteString(diagHeaderStyle.Render(fmt.Sprintf("  %-30s %-6s %-6s %-40s %s", "Domain", "Type", "TTL", "Value", "Server")))
 	b.WriteString("\n")
 
-	for _, r := range m.DNSResults {
+	visible := maxDNSPanelRows
+	if len(m.DNSResults) < visible {
+		visible = len(m.DNSResults)
+	}
+	for i := 0; i < visible; i++ {
+		r := m.DNSResults[i]
 		server := r.Server
 		if server == "" {
 			server = "-"
@@ -349,8 +404,11 @@ func (m *DiagnosticsModel) renderDNSPanel(width int) string {
 	if len(m.DNSResults) > 0 {
 		b.WriteString(diagDimStyle.Render(fmt.Sprintf("  Query time: %s", m.DNSResults[0].ResponseTime)))
 	}
+	if len(m.DNSResults) > maxDNSPanelRows {
+		b.WriteString(diagDimStyle.Render(fmt.Sprintf("  ... and %d more", len(m.DNSResults)-maxDNSPanelRows)))
+	}
 
-	return diagPanelStyle.Width(width - 4).Render(b.String())
+	return m.panelStyle(1).Width(width - 4).Render(b.String())
 }
 
 func (m *DiagnosticsModel) renderPingPanel(width int) string {
@@ -362,14 +420,18 @@ func (m *DiagnosticsModel) renderPingPanel(width int) string {
 
 	if len(m.PingResults) == 0 {
 		b.WriteString(diagDimStyle.Render("  Press p to ping all interfaces."))
-		return diagPanelStyle.Width(width - 4).Render(b.String())
+		return m.panelStyle(2).Width(width - 4).Render(b.String())
 	}
 
-	// Header
 	b.WriteString(diagHeaderStyle.Render(fmt.Sprintf("  %-16s %-20s %-12s %s", "Interface", "Target", "Latency", "Status")))
 	b.WriteString("\n")
 
-	for _, r := range m.PingResults {
+	visible := maxPingPanelRows
+	if len(m.PingResults) < visible {
+		visible = len(m.PingResults)
+	}
+	for i := 0; i < visible; i++ {
+		r := m.PingResults[i]
 		var statusStr, latStr string
 		if r.Success {
 			statusStr = diagSuccessStyle.Render("OK")
@@ -384,24 +446,30 @@ func (m *DiagnosticsModel) renderPingPanel(width int) string {
 		b.WriteString("\n")
 	}
 
-	return diagPanelStyle.Width(width - 4).Render(b.String())
+	return m.panelStyle(2).Width(width - 4).Render(b.String())
 }
 
 func (m *DiagnosticsModel) renderTraceroutePanel(width int) string {
 	var b strings.Builder
 
-	b.WriteString(diagHeaderStyle.Render("  Traceroute"))
+	title := m.panelTitle("Traceroute", 3)
+	b.WriteString(title)
 	b.WriteString("\n")
 
 	if m.TraceError != "" {
 		b.WriteString(diagErrorStyle.Render(fmt.Sprintf("  Error: %s", m.TraceError)))
-		return diagPanelStyle.Width(width - 4).Render(b.String())
+		return m.panelStyle(3).Width(width - 4).Render(b.String())
 	}
 
 	b.WriteString(diagHeaderStyle.Render(fmt.Sprintf("  %-4s %-20s %s", "Hop", "IP", "Latency")))
 	b.WriteString("\n")
 
-	for _, h := range m.TraceHops {
+	visible := maxTraceRows
+	if len(m.TraceHops) < visible {
+		visible = len(m.TraceHops)
+	}
+	for i := 0; i < visible; i++ {
+		h := m.TraceHops[i]
 		var latStr string
 		if h.IP == "*" {
 			latStr = "*"
@@ -414,5 +482,16 @@ func (m *DiagnosticsModel) renderTraceroutePanel(width int) string {
 		b.WriteString("\n")
 	}
 
-	return diagPanelStyle.Width(width - 4).Render(b.String())
+	if len(m.TraceHops) > maxTraceRows {
+		b.WriteString(diagDimStyle.Render(fmt.Sprintf("  ... and %d more hops", len(m.TraceHops)-maxTraceRows)))
+	}
+
+	return m.panelStyle(3).Width(width - 4).Render(b.String())
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

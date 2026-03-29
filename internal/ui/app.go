@@ -484,6 +484,12 @@ func (a App) handleRoutingFormKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 func (a App) handleDiagnosticsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
+	case key.Matches(msg, a.keys.PanelNext):
+		a.diagnosticsTab.NextPanel()
+		return a, nil
+	case key.Matches(msg, a.keys.PanelPrev):
+		a.diagnosticsTab.PrevPanel()
+		return a, nil
 	case key.Matches(msg, a.keys.Up):
 		a.diagnosticsTab.MoveUp()
 	case key.Matches(msg, a.keys.Down):
@@ -565,9 +571,15 @@ func (a App) handleDNSInputKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return a, dnsLookupCmd(a.executor, domain, a.diagnosticsTab.DNSType)
 	case "backspace":
 		a.diagnosticsTab.BackspaceDNS()
+	case "left":
+		a.diagnosticsTab.MoveDNSCursorLeft()
+	case "right":
+		a.diagnosticsTab.MoveDNSCursorRight()
+	case "up", "down", "tab", "shift+tab":
+		// ignore navigation keys in input mode
 	default:
 		s := msg.String()
-		if s != "" && !strings.HasPrefix(s, "ctrl+") && !strings.HasPrefix(s, "alt+") {
+		if s != "" && !strings.HasPrefix(s, "ctrl+") && !strings.HasPrefix(s, "alt+") && !strings.HasPrefix(s, "shift+") {
 			a.diagnosticsTab.TypeDNSChar(s)
 		}
 	}

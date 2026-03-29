@@ -22,6 +22,8 @@ type KeyMap struct {
 	DNSLookup     key.Binding
 	PingAll       key.Binding
 	TracerouteKey key.Binding
+	PanelNext     key.Binding
+	PanelPrev     key.Binding
 }
 
 // DefaultKeyMap returns the default key bindings.
@@ -44,6 +46,8 @@ var DefaultKeyMap = KeyMap{
 	DNSLookup:     key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "dns lookup")),
 	PingAll:       key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "ping interfaces")),
 	TracerouteKey: key.NewBinding(key.WithKeys("T"), key.WithHelp("T", "traceroute")),
+	PanelNext:     key.NewBinding(key.WithKeys("]"), key.WithHelp("]", "next panel")),
+	PanelPrev:     key.NewBinding(key.WithKeys("["), key.WithHelp("[", "prev panel")),
 }
 
 // HelpBindings returns key bindings formatted for the help view.
@@ -65,7 +69,8 @@ func (km KeyMap) RoutingHelpBindings() []key.Binding {
 // DiagnosticsHelpBindings returns key bindings for the diagnostics tab.
 func (km KeyMap) DiagnosticsHelpBindings() []key.Binding {
 	return []key.Binding{
-		km.Up, km.Down, km.SwitchTable, km.DNSLookup,
+		km.Up, km.Down, km.PanelNext, km.PanelPrev,
+		km.SwitchTable, km.DNSLookup,
 		km.PingAll, km.TracerouteKey, km.TabNext, km.Help, km.Quit,
 	}
 }
@@ -77,6 +82,6 @@ func (km KeyMap) AllBindings() []key.Binding {
 		km.Refresh, km.TabNext, km.TabPrev,
 		km.AddRule, km.DeleteRule, km.ToggleRule,
 		km.SwitchTable, km.DNSLookup, km.PingAll, km.TracerouteKey,
-		km.Confirm, km.Cancel, km.Help, km.Quit,
+		km.PanelNext, km.PanelPrev, km.Confirm, km.Cancel, km.Help, km.Quit,
 	}
 }
