@@ -18,12 +18,12 @@ type Config struct {
 
 // GeneralConfig holds general application settings.
 type GeneralConfig struct {
-	IPCheckURL        string         `yaml:"ip_check_url"`
-	IPCheckInterval   int            `yaml:"ip_check_interval"`
-	OpenVPNConfigDirs []string       `yaml:"openvpn_config_dirs"`
-	OpenVPNMethod     string         `yaml:"openvpn_method"`
-	AllowMultiVPN     bool           `yaml:"allow_multi_vpn"`
-	Timeouts          TimeoutConfig  `yaml:"timeouts"`
+	IPCheckURL        string        `yaml:"ip_check_url"`
+	IPCheckInterval   int           `yaml:"ip_check_interval"`
+	OpenVPNConfigDirs []string      `yaml:"openvpn_config_dirs"`
+	OpenVPNMethod     string        `yaml:"openvpn_method"`
+	AllowMultiVPN     bool          `yaml:"allow_multi_vpn"`
+	Timeouts          TimeoutConfig `yaml:"timeouts"`
 }
 
 // TimeoutConfig holds timeout durations in seconds for various operations.

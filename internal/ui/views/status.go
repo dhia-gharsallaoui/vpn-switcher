@@ -23,7 +23,7 @@ var (
 	valStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#F9FAFB"))
 
-	connectedDot   = lipgloss.NewStyle().Foreground(lipgloss.Color("#22C55E")).Render("●")
+	connectedDot    = lipgloss.NewStyle().Foreground(lipgloss.Color("#22C55E")).Render("●")
 	disconnectedDot = lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280")).Render("○")
 )
 

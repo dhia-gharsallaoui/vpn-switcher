@@ -33,7 +33,7 @@ var (
 type ActiveTab int
 
 const (
-	TabVPNs       ActiveTab = iota
+	TabVPNs ActiveTab = iota
 	TabRouting
 	TabDiagnostics
 )

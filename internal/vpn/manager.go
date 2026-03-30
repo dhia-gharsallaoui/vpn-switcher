@@ -242,4 +242,3 @@ func (m *Manager) providerList() []Provider {
 	}
 	return providers
 }
-

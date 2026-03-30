@@ -10,9 +10,9 @@ import (
 )
 
 var (
-	rtTitleStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F9FAFB")).MarginBottom(1)
-	rtHeaderStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7C3AED"))
-	rtEnabledStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#22C55E"))
+	rtTitleStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F9FAFB")).MarginBottom(1)
+	rtHeaderStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7C3AED"))
+	rtEnabledStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#22C55E"))
 	rtDisabledStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280"))
 	rtSelectedStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7C3AED"))
 	rtNormalStyle   = lipgloss.NewStyle().PaddingLeft(2)

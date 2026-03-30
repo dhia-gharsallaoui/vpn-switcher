@@ -42,8 +42,8 @@ type VPN struct {
 	ID         string
 	Name       string
 	Provider   ProviderType
-	ConfigPath string           // Path to .conf/.ovpn file (OpenVPN only)
-	Interface  string           // Expected interface name (tun0, tailscale0)
+	ConfigPath string // Path to .conf/.ovpn file (OpenVPN only)
+	Interface  string // Expected interface name (tun0, tailscale0)
 	Status     ConnectionStatus
 	IP         string // IP address assigned by VPN
 	ExitNode   string // Tailscale exit node (Tailscale only)

@@ -11,9 +11,9 @@ import (
 
 // tailscaleStatus represents the JSON output of `tailscale status --json`.
 type tailscaleStatus struct {
-	BackendState string                    `json:"BackendState"`
-	Self         tailscaleSelf             `json:"Self"`
-	Peer         map[string]tailscalePeer  `json:"Peer"`
+	BackendState string                   `json:"BackendState"`
+	Self         tailscaleSelf            `json:"Self"`
+	Peer         map[string]tailscalePeer `json:"Peer"`
 }
 
 type tailscaleSelf struct {
@@ -22,11 +22,11 @@ type tailscaleSelf struct {
 }
 
 type tailscalePeer struct {
-	HostName     string   `json:"HostName"`
-	TailscaleIPs []string `json:"TailscaleIPs"`
-	ExitNode     bool     `json:"ExitNode"`
-	ExitNodeOption bool   `json:"ExitNodeOption"`
-	Online       bool     `json:"Online"`
+	HostName       string   `json:"HostName"`
+	TailscaleIPs   []string `json:"TailscaleIPs"`
+	ExitNode       bool     `json:"ExitNode"`
+	ExitNodeOption bool     `json:"ExitNodeOption"`
+	Online         bool     `json:"Online"`
 }
 
 // TailscaleProvider manages Tailscale connections.
